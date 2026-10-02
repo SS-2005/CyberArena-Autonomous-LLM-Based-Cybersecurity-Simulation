@@ -1,0 +1,412 @@
+Project Title
+
+CyberArena: An Autonomous LLM-Based Cybersecurity Simulation and AI Agent Evaluation Platform
+
+1. Project Description
+
+CyberArena is a modular AI-powered cybersecurity simulation platform designed to study and evaluate the capabilities of Large Language Model (LLM) based autonomous agents in controlled virtual environments.
+
+The proposed system will provide a browser-based interface through which users can create cybersecurity experiments by selecting one or more isolated virtual machines, assigning an LLM model to each virtual machine, and providing a user-defined role or objective for each AI agent.
+
+Each selected LLM will act as the reasoning engine for its assigned agent. The agent will interact with its assigned virtual machine through a controlled tool layer, allowing it to observe the environment, execute permitted operations, analyze results, and autonomously determine subsequent actions.
+
+For the initial implementation, two isolated virtual machines will be used simultaneously. The same lightweight locally hosted LLM can be assigned to both machines for demonstration purposes. One agent may be provided with an offensive-security role while another may be provided with a defensive-security role. However, the platform itself will not hardcode attacker or defender behavior. The behavior will emerge from the role, objective, environment, available tools, and LLM reasoning.
+
+The system will record agent decisions, tool executions, VM interactions, events, execution time, and experiment results. This will allow different LLMs, roles, tools, and scenarios to be evaluated under reproducible conditions.
+
+The entire initial system is intended to use free and open-source technologies and run locally on a student's computer without requiring paid APIs or cloud infrastructure.
+
+---
+
+2. Problem Statement
+
+Traditional cybersecurity laboratories generally depend on predefined attack scripts, manually executed commands, and human-controlled simulations. Such environments are useful for learning individual security concepts but provide limited ability to evaluate how autonomous AI agents can reason, adapt, and operate within dynamic cybersecurity environments.
+
+At the same time, modern LLMs are increasingly capable of planning, tool usage, reasoning, and autonomous task execution. However, their practical capabilities and limitations in cybersecurity environments are not easily measurable using conventional benchmarks.
+
+Therefore, there is a need for a controlled experimental platform where LLM-powered agents can autonomously interact with isolated virtual machines and where their behavior, decisions, performance, and outcomes can be observed and evaluated.
+
+CyberArena aims to address this problem by providing a configurable AI cybersecurity experimentation environment.
+
+---
+
+3. Aim
+
+To develop a modular and scalable browser-based cyber-range platform that enables autonomous LLM-powered agents to interact with isolated virtual machines through tools and evaluates their behavior and performance in controlled cybersecurity scenarios.
+
+---
+
+4. Objectives
+
+1. Develop a browser-based interface for creating and monitoring AI cybersecurity experiments.
+
+2. Integrate locally hosted open-source LLMs as the reasoning engines of autonomous agents.
+
+3. Provide a configurable architecture where each virtual machine can be associated with a selected LLM and a user-defined role or objective.
+
+4. Develop an agent runtime capable of:
+   
+   - observing its assigned environment,
+   - reasoning about the current state,
+   - selecting appropriate tools,
+   - executing operations inside its assigned virtual machine,
+   - analyzing the resulting observations,
+   - and continuing autonomously until completion or an execution limit is reached.
+
+5. Implement a modular tool system through which agents can interact with virtual machines.
+
+6. Enable multiple agents to operate concurrently on separate isolated virtual machines.
+
+7. Provide controlled virtual networking for communication between laboratory machines.
+
+8. Record and visualize agent decisions, tool calls, VM events, and experiment results.
+
+9. Develop a scenario-based experimentation framework so that new environments and objectives can be added without modifying the core agent architecture.
+
+10. Develop an evaluation layer for measuring agent performance using configurable metrics.
+
+11. Ensure that autonomous execution remains isolated from the host operating system and external/public systems.
+
+---
+
+5. Proposed System Workflow
+
+The proposed system follows the architecture:
+
+Browser → Experiment Configuration → Orchestrator → Agents → LLM → Tools → Virtual Machines
+
+A typical experiment will follow these steps:
+
+1. The user opens the CyberArena web interface.
+
+2. The user selects the number of virtual machines/agents permitted by the configured resource limit.
+
+3. For each virtual machine, the user selects:
+   
+   - virtual machine,
+   - LLM model,
+   - role/objective/instruction.
+
+4. The system creates an experiment configuration.
+
+5. The orchestrator initializes the configured agents.
+
+6. Each agent receives:
+   
+   - its selected LLM,
+   - its role/objective,
+   - its assigned VM,
+   - available tools,
+   - execution limits,
+   - and current environment state.
+
+7. The LLM generates the next action through structured tool calls.
+
+8. The agent executes the selected tool inside its assigned isolated VM.
+
+9. The VM returns the execution result.
+
+10. The result is provided back to the LLM as a new observation.
+
+11. The reasoning and execution cycle continues autonomously.
+
+12. Multiple agents can execute concurrently.
+
+13. The system records the complete experiment.
+
+14. The browser displays the experiment in real time.
+
+15. At the end of the experiment, the system generates an evaluation report.
+
+---
+
+6. Core Architecture
+
+The platform will consist of the following major components:
+
+Frontend
+
+A browser-based dashboard responsible for:
+
+- experiment creation,
+- VM selection,
+- LLM selection,
+- role/objective configuration,
+- experiment control,
+- live agent monitoring,
+- VM activity visualization,
+- event logs,
+- and experiment results.
+
+Backend / Orchestrator
+
+Responsible for:
+
+- experiment lifecycle management,
+- agent initialization,
+- concurrent execution,
+- resource management,
+- event processing,
+- VM assignment,
+- and result collection.
+
+LLM Gateway
+
+Provides a model-independent interface between agents and LLMs.
+
+The initial implementation will use Ollama with locally hosted open-source models.
+
+The architecture will allow additional model providers to be integrated later without modifying the agent implementation.
+
+Agent Runtime
+
+Provides the autonomous reasoning and execution loop:
+
+Observe → Reason → Select Tool → Execute → Observe Result → Repeat
+
+The agent will not contain hardcoded attacker or defender sequences.
+
+Tool Layer
+
+Provides controlled capabilities to agents, such as:
+
+- command execution inside the assigned VM,
+- file inspection,
+- directory inspection,
+- process inspection,
+- network-state inspection,
+- system monitoring,
+- and other scenario-specific capabilities.
+
+Virtualization Layer
+
+Provides a provider-independent interface for virtual machines.
+
+The initial implementation will use VirtualBox.
+
+The architecture will allow other virtualization providers to be added later.
+
+Scenario Engine
+
+Defines:
+
+- environment configuration,
+- agent objectives,
+- available tools,
+- execution limits,
+- success conditions,
+- and evaluation criteria.
+
+Evaluation Engine
+
+Collects and analyzes:
+
+- agent actions,
+- tool usage,
+- execution time,
+- successful and failed operations,
+- objective completion,
+- errors,
+- and other configurable metrics.
+
+---
+
+7. Example Demonstration
+
+A demonstration experiment may contain two isolated virtual machines.
+
+Agent 1
+
+VM: Linux VM 1
+LLM: Lightweight locally hosted model
+Role: Offensive security assessment
+
+The agent receives a user-defined instruction describing its objective and autonomously determines which available tools to use within the controlled laboratory environment.
+
+Agent 2
+
+VM: Linux VM 2
+LLM: Same lightweight locally hosted model
+Role: Defensive security monitoring
+
+The second agent receives its own independent objective and independently observes and operates within its assigned environment.
+
+Both agents operate concurrently.
+
+The system displays their activities in the browser:
+
+- current state,
+- selected action,
+- tool execution,
+- execution result,
+- timestamps,
+- VM activity,
+- and experiment events.
+
+The same architecture can later support different models for each agent.
+
+---
+
+8. Applications
+
+1. AI Cybersecurity Research
+
+Study how LLM-based autonomous agents perform cybersecurity-related tasks in controlled environments.
+
+2. LLM Benchmarking
+
+Compare different models based on their ability to:
+
+- reason,
+- plan,
+- use tools,
+- adapt to environmental feedback,
+- complete objectives,
+- and recover from failed actions.
+
+3. Autonomous Red-Team Research
+
+Investigate how AI agents can perform controlled security assessments without requiring every individual action to be manually scripted.
+
+4. Autonomous Defensive-Agent Research
+
+Study how AI agents can monitor systems, identify abnormal behavior, and perform appropriate defensive actions in simulated environments.
+
+5. Cybersecurity Education
+
+Provide students with an interactive environment for understanding:
+
+- system security,
+- networking,
+- Linux administration,
+- attack and defense concepts,
+- AI agents,
+- and LLM tool usage.
+
+6. AI Agent Evaluation
+
+The platform can be used as a controlled environment for evaluating autonomous agents beyond cybersecurity, provided appropriate scenarios and tools are created.
+
+7. Cyber-Range Simulation
+
+The platform can eventually support multiple virtual machines, different network topologies, configurable vulnerabilities, and different AI agents.
+
+---
+
+9. Novelty
+
+The proposed project combines several technologies into a unified experimentation platform:
+
+- Large Language Models,
+- autonomous AI agents,
+- tool-based execution,
+- virtual machines,
+- controlled networking,
+- concurrent multi-agent execution,
+- browser-based monitoring,
+- scenario-based experimentation,
+- and agent performance evaluation.
+
+Rather than creating a single AI cybersecurity tool with predefined behavior, the proposed system focuses on creating a general experimentation framework in which the LLM determines its actions based on the provided objective and environment.
+
+This makes the system suitable for comparing AI models and studying their behavior under controlled conditions.
+
+---
+
+10. Scalability
+
+The system will be designed around independent modules:
+
+LLM Provider ↔ Agent Runtime ↔ Tool Layer ↔ VM Provider
+
+This allows individual components to be replaced without redesigning the entire system.
+
+For example:
+
+- Ollama can be replaced by another LLM provider.
+- VirtualBox can be replaced by another virtualization technology.
+- New tools can be added without changing the agent.
+- New scenarios can be added through configuration.
+- Additional agents can be introduced without changing the core orchestrator.
+- New evaluation metrics can be added independently.
+
+The initial demonstration will be limited to a configurable maximum number of virtual machines based on available hardware resources. This limit will be configurable rather than hardcoded into the application.
+
+---
+
+11. Safety and Isolation
+
+Because the system allows autonomous agents to execute operations, strong isolation is a fundamental design requirement.
+
+Agents will operate only inside explicitly assigned laboratory virtual machines.
+
+The system will prevent agents from directly accessing:
+
+- the host operating system,
+- host filesystem,
+- host processes,
+- host shell,
+- or arbitrary external/public systems.
+
+The virtual machines will operate within an isolated laboratory network.
+
+VM snapshots will be used to restore environments after experiments.
+
+This allows potentially destructive experimentation to occur inside disposable environments without affecting the user's primary operating system.
+
+---
+
+12. Expected Outcomes
+
+At the completion of the project, the system is expected to provide:
+
+1. A functional browser-based AI cyber-range.
+
+2. Dynamic selection of virtual machines and LLM models.
+
+3. Autonomous LLM-powered agents capable of operating inside isolated virtual machines through tools.
+
+4. Concurrent execution of multiple agents.
+
+5. Real-time browser visualization of agent activity.
+
+6. Configurable roles and objectives without hardcoded attack/defense workflows.
+
+7. Reproducible cybersecurity scenarios.
+
+8. Experiment logs and evaluation reports.
+
+9. A modular architecture capable of supporting additional models, agents, VMs, tools, and scenarios.
+
+10. A foundation for future research into autonomous AI cybersecurity agents.
+
+---
+
+13. Feasibility
+
+The initial prototype is feasible as a student project because it can be developed entirely using free and open-source technologies and executed locally.
+
+The main hardware limitation is local LLM inference and simultaneous virtual-machine execution. Therefore, the initial demonstration will use a lightweight LLM and a limited number of virtual machines. The software architecture will nevertheless be designed to support larger deployments when additional computing resources become available.
+
+The project will be implemented incrementally, beginning with VM management and LLM integration, followed by autonomous agent execution, multi-agent concurrency, browser visualization, isolation, scenarios, and evaluation.
+
+---
+
+14. Future Scope
+
+The platform can be extended to support:
+
+- multiple different LLMs,
+- larger cyber ranges,
+- additional virtual machines,
+- automated vulnerability generation,
+- advanced attack/defense scenarios,
+- network traffic analysis,
+- intrusion detection agents,
+- multi-agent collaboration,
+- model benchmarking,
+- reinforcement-learning based agents,
+- historical experiment comparison,
+- and distributed/cloud-based execution.
+
+The long-term objective is to develop CyberArena into a research platform for studying autonomous AI agents in cybersecurity environments rather than merely a single-purpose cybersecurity application.

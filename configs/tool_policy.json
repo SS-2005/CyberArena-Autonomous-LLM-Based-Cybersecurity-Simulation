@@ -1,0 +1,34 @@
+{
+  "enabled": true,
+  "timeout": 120,
+  "max_retries": 2,
+  "allowed_packages": [
+    "*"
+  ],
+  "allowed_services": [
+    "*"
+  ],
+  "allowed_config_targets": {
+    "*": ["set", "append", "replace"],
+    "/etc/ssh/sshd_config.d/cyberarena.conf": ["set", "append", "replace"],
+    "/etc/sysctl.d/99-cyberarena.conf": ["set", "append", "replace"],
+    "/etc/security/limits.d/cyberarena.conf": ["set", "append", "replace"],
+    "/etc/cyberarena/lab.conf": ["set", "append", "replace"]
+  },
+  "allowed_user_groups": [
+    "users",
+    "developers",
+    "analysts",
+    "operators",
+    "testers"
+  ],
+  "forbidden_user_groups": [
+    "sudo",
+    "root",
+    "wheel",
+    "admin",
+    "adm",
+    "shadow",
+    "disk"
+  ]
+}

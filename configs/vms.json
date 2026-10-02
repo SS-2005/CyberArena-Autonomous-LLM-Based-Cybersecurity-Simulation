@@ -1,0 +1,30 @@
+{
+  "max_vm": 2,
+  "default_provider": "virtualbox",
+  "vms": [
+    {
+      "vm_id": "vm-01",
+      "vm_provider": "virtualbox",
+      "virtualbox_vm_name": "cyberarena-vm-01",
+      "ssh_host": "192.168.32.101",
+      "ssh_port": 22,
+      "ssh_username": "labuser",
+      "ssh_auth_method": "password",
+      "ssh_password_env": "CYBERARENA_VM01_PASSWORD",
+      "ssh_key_path_env": "CYBERARENA_VM01_KEY_PATH",
+      "description": "Primary isolated laboratory node for experiment operations"
+    },
+    {
+      "vm_id": "vm-02",
+      "vm_provider": "virtualbox",
+      "virtualbox_vm_name": "cyberarena-vm-02",
+      "ssh_host": "192.168.32.102",
+      "ssh_port": 22,
+      "ssh_username": "labuser",
+      "ssh_auth_method": "password",
+      "ssh_password_env": "CYBERARENA_VM02_PASSWORD",
+      "ssh_key_path_env": "CYBERARENA_VM02_KEY_PATH",
+      "description": "Secondary isolated laboratory node (standby/uncreated slot)"
+    }
+  ]
+}

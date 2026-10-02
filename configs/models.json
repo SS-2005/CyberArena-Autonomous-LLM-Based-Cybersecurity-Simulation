@@ -1,0 +1,60 @@
+{
+  "default_model": "local-qwen25-1.5b",
+  "llm_parallelism": 4,
+  "default_iteration_limit": 10,
+  "default_timeout": 180,
+  "models": [
+    {
+      "model_id": "local-qwen25-1.5b",
+      "provider": "ollama",
+      "model_name": "qwen2.5:1.5b",
+      "display_name": "Qwen 2.5 1.5B (Fast Instruction)",
+      "enabled": true,
+      "size": "986 MB",
+      "thinking_supported": false,
+      "think": false,
+      "temperature": 0.2,
+      "num_ctx": 4096,
+      "description": "Ultra-fast lightweight 1.5B instruction model. Prompt response without thinking delay."
+    },
+    {
+      "model_id": "local-llama32-1b",
+      "provider": "ollama",
+      "model_name": "llama3.2:1b",
+      "display_name": "Llama 3.2 1B (Ultra-light)",
+      "enabled": true,
+      "size": "1.3 GB",
+      "thinking_supported": false,
+      "think": false,
+      "temperature": 0.2,
+      "num_ctx": 4096,
+      "description": "Meta Llama 3.2 1B, highly responsive lightweight model with prompt tool execution."
+    },
+    {
+      "model_id": "local-llama32-3b",
+      "provider": "ollama",
+      "model_name": "llama3.2:3b",
+      "display_name": "Llama 3.2 3B (Balanced)",
+      "enabled": true,
+      "size": "2.0 GB",
+      "thinking_supported": false,
+      "think": false,
+      "temperature": 0.2,
+      "num_ctx": 4096,
+      "description": "Meta Llama 3.2 3B, balanced intelligence and tool calling capability."
+    },
+    {
+      "model_id": "local-qwen3-4b",
+      "provider": "ollama",
+      "model_name": "qwen3:4b",
+      "display_name": "Qwen 3 4B (Reasoning / Deep Thinking)",
+      "enabled": true,
+      "size": "2.5 GB",
+      "thinking_supported": true,
+      "think": false,
+      "temperature": 0.4,
+      "num_ctx": 4096,
+      "description": "Qwen 3 4B model with chain-of-thought capabilities."
+    }
+  ]
+}

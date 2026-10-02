@@ -1,0 +1,1656 @@
+PHASE 3/4 AGENT EXECUTION + PRIVILEGED TOOLS + CONCLUSION REPAIR
+================================================================
+
+You are working on the existing CyberArena codebase.
+
+DO NOT rewrite the architecture from scratch.
+DO NOT replace working components unnecessarily.
+First inspect the existing backend, frontend, agent runtime, tool registry,
+VMProvider, VirtualBoxProvider, OllamaProvider, experiment orchestration,
+event streaming, configuration files, tests, and current UI.
+
+Goal:
+Repair the current agent execution system so that agents can perform
+controlled privileged operations inside their assigned isolated Ubuntu VM,
+handle errors correctly, understand iteration limits, and always produce
+evidence-based LLM-generated conclusions.
+
+The following requirements are mandatory.
+
+
+========================================================s
+1. ADD CONTROLLED PRIVILEGED VM TOOLS
+========================================================
+
+Add explicit guest-VM tools such as:
+
+1. install_package
+2. restart_service
+3. modify_system_config
+4. create_user
+
+Design the tool system so additional privileged tools can be added later
+without modifying the core Agent loop.
+
+The architecture MUST remain:
+
+Agent
+ -> ToolRegistry
+ -> VMProvider
+ -> VirtualBoxProvider
+ -> SSH
+ -> assigned VM
+
+The LLM must NEVER directly execute privileged host commands.
+
+The LLM must NEVER receive:
+- Windows host credentials
+- .env secrets
+- VM passwords
+- sudo passwords
+- SSH private keys
+- any secret used internally by the backend
+
+Do NOT implement:
+    echo "<password>" | sudo -S ...
+Do NOT inject passwords into prompts.
+Do NOT expose passwords to the LLM.
+
+The agent should call typed tools instead.
+
+
+--------------------------------------------------------
+1.1 install_package
+--------------------------------------------------------
+
+Create a typed tool:
+
+install_package(
+    vm_id,
+    package_name
+)
+
+Requirements:
+
+- Validate package_name before execution.
+- Reject empty/invalid package names.
+- Do not construct unrestricted shell strings from arbitrary LLM input.
+- Execute the package installation inside the assigned VM only.
+- Use a controlled privileged mechanism that does NOT require an interactive
+  sudo password.
+- Return structured output:
+
+{
+    vm_id,
+    package_name,
+    success,
+    exit_code,
+    stdout,
+    stderr,
+    duration,
+    error
+}
+
+The tool must support the normal use case:
+
+Agent:
+    execute_command("nmap ...")
+
+VM:
+    nmap: command not found
+
+Agent should receive that error.
+
+LLM should then be able to reason:
+
+"nmap is unavailable."
+
+It can call:
+
+    install_package("nmap")
+
+After successful installation it can retry the original command.
+
+Do NOT blindly retry forever.
+
+Maximum tool retry count must be configuration-driven.
+
+
+--------------------------------------------------------
+1.2 restart_service
+--------------------------------------------------------
+
+Create:
+
+restart_service(
+    vm_id,
+    service_name
+)
+
+Requirements:
+
+- Validate service_name.
+- Execute only inside assigned VM.
+- Use controlled passwordless privileged execution.
+- Return structured result.
+- After restarting, optionally verify service state.
+- The verification result must also be returned to the Agent.
+
+
+--------------------------------------------------------
+1.3 modify_system_config
+--------------------------------------------------------
+
+Create:
+
+modify_system_config(
+    vm_id,
+    target,
+    operation,
+    value
+)
+
+Requirements:
+
+- Do NOT implement unrestricted arbitrary root shell execution.
+- Introduce an explicit allowlist of supported configuration targets.
+- Validate target and operation.
+- Keep configuration targets and allowed operations configurable.
+- Return before/after or equivalent observable state where practical.
+- Return structured success/failure information.
+
+Examples of allowed configuration operations may include:
+- changing an allowlisted system configuration file
+- enabling/disabling an allowlisted service
+- changing an allowlisted configuration key
+
+Do not give the LLM unrestricted root access to modify any file.
+
+
+--------------------------------------------------------
+1.4 create_user
+--------------------------------------------------------
+
+Create:
+
+create_user(
+    vm_id,
+    username,
+    groups=[]
+)
+
+Requirements:
+
+- Validate username.
+- Validate group names against an allowlist/policy.
+- Do NOT allow arbitrary privilege escalation through unrestricted group
+  assignment.
+- Explicitly control whether administrative groups are allowed.
+- Return structured result:
+    username
+    groups
+    success
+    exit_code
+    stdout
+    stderr
+    error
+
+If an operation would violate the policy, return a normal structured tool
+error to the Agent instead of crashing the Agent runtime.
+
+
+========================================================
+2. PASSWORDLESS PRIVILEGED EXECUTION
+========================================================
+
+Implement a secure controlled mechanism so these explicit tools do not
+require the interactive sudo password.
+
+Preferred architecture:
+
+Inside each CyberArena Ubuntu VM:
+
+- Create root-owned wrapper commands/scripts for approved privileged
+  operations.
+- Configure sudoers with narrowly scoped NOPASSWD permissions for those
+  wrappers only.
+- The wrappers must validate their arguments.
+- The SSH user must NOT receive unrestricted NOPASSWD access to arbitrary
+  commands.
+- The Agent must NOT receive the sudo password.
+- The LLM must NOT know how privileged authentication is internally
+  implemented.
+
+Example conceptual model:
+
+sudo /usr/local/sbin/cyberarena-install-package <validated-package>
+sudo /usr/local/sbin/cyberarena-restart-service <validated-service>
+
+NOT:
+
+sudo bash -c "<arbitrary LLM command>"
+
+and NOT:
+
+echo "$PASSWORD" | sudo -S ...
+
+Use configuration/policy files rather than hardcoding VM-specific values
+inside the Agent logic.
+
+If there is already a VM provisioning/setup mechanism, integrate this into
+that mechanism.
+
+If not, create a documented provisioning script/setup step for each
+CyberArena VM.
+
+The setup MUST be repeatable for VM-01 and VM-02.
+
+
+========================================================
+3. PRIVILEGED TOOL POLICY
+========================================================
+
+Create a centralized policy/configuration for privileged tools.
+
+Example conceptual structure:
+
+configs/tool_policy.json
+
+with configurable fields such as:
+
+- enabled
+- allowed_packages
+- allowed_services
+- allowed_config_targets
+- allowed_operations
+- allowed_user_groups
+- timeout
+- max_retries
+
+Do not hardcode business rules throughout random modules.
+
+The Agent should discover the available tools through ToolRegistry.
+
+
+========================================================
+4. AGENT ERROR HANDLING
+========================================================
+
+This is extremely important.
+
+Currently the agent produced:
+
+    nmap -sn 192.168.32.0/24
+    bash: nmap: command not found
+
+then:
+
+    sudo apt update && sudo apt install -y nmap
+
+which failed because sudo required a password.
+
+then the LLM generated:
+
+    echo 'your_password' | sudo -S ...
+
+which was obviously wrong.
+
+THIS BEHAVIOR MUST BE ELIMINATED.
+
+The Agent must NEVER fabricate passwords or placeholders such as:
+
+- your_password
+- password
+- <password>
+- YOUR_PASSWORD
+
+The Agent must understand that credentials are backend-only secrets.
+
+If a privileged operation is needed, it MUST use the explicit privileged
+tool.
+
+
+========================================================
+5. TOOL ERROR MUST BE FED BACK TO THE LLM
+========================================================
+
+Every tool execution must produce a structured observation available to
+the next LLM iteration.
+
+For example:
+
+{
+    "tool": "execute_command",
+    "success": false,
+    "exit_code": 127,
+    "stdout": "",
+    "stderr": "nmap: command not found",
+    "error_type": "command_not_found"
+}
+
+The Agent then sends this information back into the LLM context.
+
+The LLM must be able to reason from:
+
+- objective
+- previous actions
+- tool outputs
+- errors
+- exit codes
+- observations
+- retry history
+- iteration usage
+- VM identity
+
+Do NOT only retain the latest observation.
+
+Maintain an accumulated execution/evidence context for the entire run.
+
+
+========================================================
+6. COMMAND-NOT-FOUND RECOVERY
+========================================================
+
+Implement a general recovery pattern.
+
+Example:
+
+Iteration 1:
+    execute_command("nmap -sn 192.168.32.0/24")
+
+Result:
+    nmap: command not found
+
+LLM interpretation:
+    required tool is unavailable
+
+Iteration 2:
+    install_package("nmap")
+
+Result:
+    installation successful
+
+Iteration 3:
+    execute_command("nmap -sn 192.168.32.0/24")
+
+Result:
+    actual nmap output
+
+Then continue toward the objective.
+
+Do NOT hardcode "if nmap then install nmap".
+
+The recovery must be generic so the LLM can decide when a missing
+dependency should be installed through install_package.
+
+Still enforce:
+- package allowlist/policy
+- retry limit
+- iteration limit
+- timeout
+- tool availability
+
+
+========================================================
+7. ITERATION LIMIT MUST BE EXPLICITLY INFORMED TO LLM
+========================================================
+
+Current problem:
+
+The agent reaches 5/5 iterations and simply reports:
+
+    Agent completed 5 steps.
+
+This is misleading.
+
+When an Agent reaches its iteration limit, the runtime MUST explicitly
+inform the LLM that it has reached the configured limit.
+
+However, do NOT perform an additional normal tool-execution iteration after
+the limit is exhausted.
+
+Before final conclusion generation, construct a finalization context such as:
+
+EXECUTION LIMIT REACHED
+
+The configured maximum iteration count has been reached.
+
+Agent:
+    agent-1
+
+VM:
+    vm-01
+
+Iterations:
+    5 / 5
+
+The agent must not execute additional tools.
+
+The final conclusion MUST determine whether the objective was:
+- completed
+- partially completed
+- blocked
+- failed
+- inconclusive
+
+based on the accumulated evidence.
+
+
+========================================================
+8. FINAL CONCLUSION MUST BE GENERATED BY THE LLM
+========================================================
+
+Do NOT generate conclusions like:
+
+    "Agent completed 5 steps on VM vm-01."
+
+That is not a conclusion.
+
+The Agent finalization prompt must contain the accumulated evidence.
+
+Include:
+
+- original objective
+- assigned role
+- assigned VM
+- all action summaries
+- all tool calls
+- all tool results
+- stdout/stderr
+- exit codes
+- errors
+- observations
+- retries
+- iteration number
+- iteration limit
+- whether the final iteration limit was reached
+- execution status
+- unresolved issues
+
+The LLM must produce a concise evidence-based conclusion.
+
+Required conceptual structure:
+
+{
+    "status": "completed | partially_completed | blocked | failed | inconclusive",
+    "summary": "...",
+    "findings": [...],
+    "evidence": [...],
+    "errors": [...],
+    "unresolved_items": [...],
+    "iteration_limit_reached": true/false
+}
+
+
+
+Store/display reasoning summaries and observable evidence.
+
+
+========================================================
+9. FINALIZATION EDGE CASES
+========================================================
+
+Handle ALL of these:
+
+A. Objective completed before iteration limit
+    -> final LLM conclusion
+
+B. Objective incomplete and iteration limit reached
+    -> LLM explicitly told limit was reached
+    -> partial/inconclusive conclusion as appropriate
+
+C. Tool returns non-zero exit code
+    -> pass error to LLM
+
+D. Tool times out
+    -> pass timeout observation to LLM
+
+E. SSH connection fails
+    -> pass VM connectivity failure to LLM
+
+F. VM stops/crashes
+    -> pass VM state/error to LLM
+
+G. Tool is unavailable
+    -> LLM receives tool-unavailable error
+
+H. Privileged tool rejects policy
+    -> LLM receives explicit policy rejection
+
+I. Package installation fails
+    -> LLM receives installation failure
+
+J. Command produces stderr but exit_code=0
+    -> preserve stderr and let LLM interpret it
+
+K. Command produces empty output
+    -> preserve that fact
+
+L. Repeated identical failure
+    -> avoid infinite repeated attempts
+
+M. LLM suggests password injection
+    -> reject/sanitize it and return a tool-policy error
+
+N. LLM suggests arbitrary privileged shell execution
+    -> reject it and tell the LLM to use the corresponding privileged tool
+
+O. Agent cancellation
+    -> finalize with cancelled status and evidence accumulated so far
+
+P. Backend/LLM generation error during finalization
+    -> preserve all execution data
+    -> produce a deterministic fallback summary
+    -> clearly mark that LLM finalization failed
+    -> DO NOT pretend an LLM-generated conclusion exists
+
+
+========================================================
+10. AGENT STATUS MODEL
+========================================================
+
+Review current Agent status handling.
+
+Do NOT mark an Agent simply as:
+
+    completed
+
+when it merely reached its iteration limit.
+
+Use meaningful state semantics, for example:
+
+- running
+- completed
+- partially_completed
+- blocked
+- failed
+- stopped_iteration_limit
+- cancelled
+
+Choose names consistent with the existing architecture.
+
+The UI must distinguish:
+
+"completed objective"
+
+from:
+
+"stopped because iteration limit was reached."
+
+
+========================================================
+11. OVERALL EXPERIMENT SUMMARY
+========================================================
+
+Current overall summary is too generic:
+
+    "Experiment completed with 2 agents."
+
+This MUST be replaced.
+
+The experiment-level final summary must be generated by the LLM using:
+
+- experiment objective
+- experiment configuration
+- every Agent's final conclusion
+- every Agent's findings
+- important evidence
+- errors
+- unresolved items
+- iteration-limit status
+- VM assignment
+
+Example of the type of result expected:
+
+Experiment Summary:
+Two agents were assigned to VM-01 and VM-02. Agent-1 attempted network
+discovery but initially failed because nmap was not installed. The dependency
+was installed through the controlled privileged package tool, after which
+network discovery completed successfully. Agent-2 verified listening ports
+and running services on VM-02. One agent reached the iteration limit before
+completing all planned checks, so those findings should be treated as
+partial rather than complete.
+
+The exact text must come from the LLM and must be based on actual evidence.
+
+Do NOT hardcode this example.
+
+
+========================================================
+12. MULTI-AGENT SYNTHESIS MUST USE ACTUAL EVIDENCE
+========================================================
+
+Before experiment finalization, collect each agent's structured result.
+
+Example:
+
+Agent-1:
+{
+    status,
+    summary,
+    findings,
+    evidence,
+    errors,
+    unresolved_items,
+    iteration_limit_reached
+}
+
+Agent-2:
+{
+    ...
+}
+
+Send these to the experiment-level LLM synthesis stage.
+
+The synthesis must identify:
+- what each agent actually established
+- what failed
+- what remained incomplete
+- relevant cross-agent observations
+- important errors
+- whether the experiment objective was actually met
+
+Do NOT create a generic:
+    "2 agents completed."
+
+statement.
+
+
+========================================================
+13. REMOVE "LIVE STEP PROGRESSION TELEMETRY FEED"
+========================================================
+
+Remove the UI component named:
+
+    Live Step Progression Telemetry Feed
+
+Do NOT replace it with another giant scrolling telemetry panel.
+
+Keep useful live UI features that already exist, such as:
+
+- agent status
+- assigned VM
+- terminal/output where appropriate
+- current action
+- final conclusions
+- experiment summary
+- errors/status indicators
+
+The primary result displayed to the user should be:
+
+Agent status
+Current/last action
+Important live command/output where useful
+Final Agent Conclusion
+Experiment Summary
+
+Remove obsolete frontend telemetry-feed rendering and any backend/event
+contracts that are ONLY needed by that removed UI.
+
+Do not break WebSocket/SSE functionality that is still required for:
+- live agent state updates
+- terminal output streaming
+- final conclusion updates
+- experiment summary updates
+
+
+========================================================
+14. UI REQUIREMENTS
+========================================================
+
+For each Agent display:
+
+Agent ID
+VM
+Role
+Status
+Iteration: X / Y
+
+During execution, show concise current activity.
+
+When completed:
+
+Agent Conclusion:
+    <LLM-generated conclusion>
+
+Status must make iteration-limit cases obvious.
+
+For example:
+
+    STOPPED - ITERATION LIMIT
+
+instead of:
+
+    COMPLETED
+
+
+For errors show:
+
+    Error
+    <human-readable explanation>
+
+but do not expose secrets.
+
+
+========================================================
+15. EVIDENCE MODEL
+========================================================
+
+Review current Agent memory/state implementation.
+
+Ensure it stores structured execution records.
+
+Conceptual structure:
+
+ExecutionRecord:
+    iteration
+    timestamp
+    action_type
+    tool_name
+    arguments_safe
+    result
+    stdout
+    stderr
+    exit_code
+    duration
+    success
+    error
+    observation_summary
+
+Never persist secrets.
+
+Do not store:
+- passwords
+- tokens
+- private keys
+- .env contents
+- SSH credentials
+
+
+========================================================
+16. OBSERVATION -> LLM CONTEXT
+========================================================
+
+Verify the actual data flow:
+
+Tool execution
+    ↓
+ToolResult
+    ↓
+Agent observation/state
+    ↓
+LLM context
+    ↓
+next action
+
+and:
+
+All ToolResults
+    ↓
+Finalization Context
+    ↓
+LLM
+    ↓
+Agent Final Conclusion
+
+and:
+
+All Agent Conclusions
+    ↓
+Experiment Finalization Context
+    ↓
+LLM
+    ↓
+Overall Experiment Summary
+
+
+========================================================
+17. TESTS
+========================================================
+
+Add/repair automated tests.
+
+At minimum test:
+
+1. install_package success
+2. install_package validation failure
+3. restart_service success
+4. restart_service validation failure
+5. modify_system_config policy enforcement
+6. create_user validation
+7. privileged tools do not expose passwords
+8. Agent handles command_not_found
+9. Agent can recover using install_package
+10. Agent receives stderr
+11. Agent receives non-zero exit code
+12. Agent receives timeout
+13. Agent receives SSH failure
+14. Agent stops when iteration limit reached
+15. LLM receives iteration-limit information
+16. final conclusion uses accumulated tool results
+17. final conclusion reflects errors
+18. final conclusion distinguishes partial vs completed
+19. experiment summary includes multiple agents' actual findings
+20. experiment summary includes agent errors
+21. iteration-limit agent is not reported as successfully completed
+22. cancellation produces a final status
+23. final LLM generation failure has a deterministic fallback
+24. forbidden arbitrary privileged command is rejected
+25. password/secret injection attempt is rejected
+26. frontend no longer renders "Live Step Progression Telemetry Feed"
+
+Add integration tests using fake providers where practical.
+
+Then run the full existing test suite.
+
+Do NOT delete existing tests merely to make the suite pass.
+
+
+========================================================
+18. REAL VM VALIDATION
+========================================================
+
+After implementation, run a real integration test against:
+
+VM-01:
+    192.168.32.101
+
+VM-02:
+    192.168.32.102
+
+Use the configured VM registry rather than hardcoding these addresses into
+the Agent logic.
+
+At minimum perform a real test similar to:
+
+Objective:
+    Discover hosts/services on the assigned lab VM/network.
+
+Expected behavior:
+
+1. Agent attempts required command.
+2. If dependency is missing:
+       command_not_found
+3. LLM receives error.
+4. LLM chooses install_package when appropriate.
+5. Package installation occurs through the privileged tool.
+6. No password is shown to LLM.
+7. Original task can be retried within limits.
+8. Errors are preserved.
+9. If iteration limit is reached, LLM is told explicitly.
+10. Final Agent conclusion is evidence-based.
+11. Experiment-level summary includes actual Agent findings.
+
+
+========================================================
+19. IMPORTANT SECURITY CONSTRAINTS
+========================================================
+
+CyberArena is an isolated local VirtualBox cyber lab.
+
+Maintain the existing isolation model.
+
+Do NOT introduce:
+- public-target scanning
+- host Windows command execution
+- arbitrary host shell endpoints
+- unrestricted root shell inside VMs
+- password exposure to LLM
+- secret exposure through environment_info
+- unrestricted sudo permissions
+
+All VM execution must continue through the configured VMProvider.
+
+
+========================================================
+20. CONFIGURATION, NOT HARDCODING
+========================================================
+
+Do not hardcode:
+
+VM IDs
+IP addresses
+number of agents
+maximum VM count
+model names
+iteration limits
+tool retry counts
+package lists
+service lists
+privileged permissions
+
+Continue using configuration-driven architecture.
+
+Existing max_vm behavior must remain dynamic.
+
+
+========================================================
+21. ACCEPTANCE CRITERIA
+========================================================
+
+The implementation is considered complete ONLY when all of the following
+are true:
+
+[ ] Privileged tools exist and are discoverable through ToolRegistry.
+
+[ ] install_package can install an allowed package in the assigned VM
+    without requiring an interactive sudo password.
+
+[ ] restart_service works through controlled privileged execution.
+
+[ ] modify_system_config is policy-controlled.
+
+[ ] create_user is policy-controlled.
+
+[ ] No password is exposed to the LLM.
+
+[ ] The LLM cannot use fake placeholders such as "your_password".
+
+[ ] Command errors are returned to the LLM.
+
+[ ] Tool failures are returned to the LLM.
+
+[ ] Iteration-limit status is explicitly included in finalization context.
+
+[ ] Reaching the iteration limit does NOT automatically mean "completed".
+
+[ ] Final Agent conclusions are actually generated by the LLM from
+    accumulated evidence.
+
+[ ] Errors appear in the evidence supplied to finalization.
+
+[ ] Partial/incomplete tasks are represented as such.
+
+[ ] Overall experiment summary is generated from real Agent findings.
+
+[ ] Multi-agent synthesis uses all participating Agent conclusions.
+
+[ ] "Live Step Progression Telemetry Feed" is removed from the UI.
+
+[ ] Existing useful live state/terminal/final-result functionality remains.
+
+[ ] No secret values appear in logs, UI, events, prompts, or conclusions.
+
+[ ] All existing tests still pass.
+
+[ ] New tests pass.
+
+[ ] Frontend builds successfully.
+
+[ ] Real VM-01 and VM-02 integration testing succeeds.
+
+========================================================
+22. REQUIRED DELIVERABLE
+========================================================
+
+At the end, provide a concise implementation report containing:
+
+1. Files changed
+2. New privileged tools
+3. How passwordless privileged execution works
+4. Policy/configuration added
+5. Agent loop changes
+6. Iteration-limit handling
+7. Error propagation changes
+8. Final Agent conclusion design
+9. Experiment-level synthesis design
+10. Telemetry UI removed
+11. Tests added
+12. Full test result
+13. Frontend build result
+14. Real VM integration result
+15. Any remaining limitations
+
+IMPORTANT:
+
+Do not claim success based only on unit tests.
+
+Actually verify the relevant behavior end-to-end.
+
+Do not stop after making code changes.
+Inspect -> implement -> test -> fix -> retest -> report.
+
+
+
+
+
+plus remove duplicated ui texts from ui whereever present
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Phase 4:
+Continue the existing CyberArena project.
+
+PHASE 1, PHASE 2, and PHASE 3 are complete and verified.
+
+Preserve the existing modular architecture.
+
+IMPLEMENT PHASE 4 ONLY.
+
+This is the final integration phase.
+
+============================================================
+PHASE 4 OBJECTIVE
+============================================================
+
+Transform the existing system into the complete CyberArena autonomous-agent laboratory.
+
+Final flow:
+
+Browser
+   ↓
+Experiment Builder
+   ↓
+Scenario
+   ↓
+Orchestrator
+   ↓
+Concurrent AI Agents
+   ↓
+Local LLM
+   ↓
+Tools
+   ↓
+Assigned Isolated VMs
+   ↓
+Events / Logs
+   ↓
+Evaluation
+   ↓
+Results
+   ↓
+Recovery
+
+All experiments must operate only within explicitly configured isolated lab VMs.
+
+============================================================
+1. ISOLATION HARDENING
+============================================================
+
+Strengthen all existing safety boundaries.
+
+Implement:
+
+- VM assignment validation
+- private/host-only network checks
+- snapshot-before-experiment
+- baseline snapshot tracking
+- optional automatic restore
+- emergency kill switch
+- command timeout
+- agent timeout
+- experiment timeout
+- iteration limit
+- output size limit
+- tool invocation limit
+
+The system must refuse to start an experiment if VM configuration is invalid.
+
+No unrestricted host execution.
+
+No arbitrary public-system targets.
+
+No arbitrary SSH targets.
+
+No host terminal endpoint.
+
+============================================================
+2. SNAPSHOT / RECOVERY
+============================================================
+
+Before an experiment:
+
+1. Validate configuration.
+2. Validate assigned VMs.
+3. Verify VM health.
+4. Create/identify baseline snapshot.
+5. Record snapshot metadata.
+6. Start experiment.
+
+After experiment:
+
+- optionally restore baseline
+- verify restore result
+- record recovery status
+
+Implement emergency stop.
+
+Emergency stop must:
+
+- stop agent loops
+- prevent new tool executions
+- terminate experiment tasks
+- optionally stop VMs according to configured policy
+- preserve event/audit information
+
+============================================================
+3. SCENARIO ENGINE
+============================================================
+
+Create configuration-driven scenario abstractions.
+
+Examples:
+
+Scenario
+ScenarioEnvironment
+ScenarioAgentTemplate
+ScenarioLimits
+ScenarioSuccessCriteria
+ScenarioEvaluationConfig
+
+A scenario configuration should be able to define:
+
+scenario_id
+name
+description
+VM mapping
+agent templates
+initial state
+available tools
+timeouts
+iteration limits
+success criteria
+evaluation metrics
+reset policy
+
+Do not hardcode scenarios into application business logic.
+
+============================================================
+4. USER-DEFINED AGENT ROLES
+============================================================
+
+Roles must remain configurable.
+
+Do not hardcode permanent:
+
+AttackerAgent
+DefenderAgent
+
+Instead support arbitrary instructions.
+
+For example:
+
+Agent role:
+"Investigate the configured laboratory environment and identify the simulated security condition."
+
+Another:
+
+"Monitor the configured laboratory environment and respond to the simulated condition according to the experiment objective."
+
+These are example prompts only.
+
+The actual role must come from configuration/user input.
+
+============================================================
+5. CONTROLLED LAB SCENARIO
+============================================================
+
+Create at least one safe demonstration scenario using ONLY the isolated local VMs.
+
+The scenario must use deliberately controlled conditions.
+
+Examples:
+
+- identify a planted file
+- identify a controlled service anomaly
+- inspect a known lab configuration
+- detect a benign simulated event
+- respond to a controlled lab-state change
+
+The experiment must not require public IPs, real organizations, real victims, or unauthorized systems.
+
+The purpose is to demonstrate:
+
+reasoning
+observation
+tool use
+VM interaction
+concurrent agents
+event streaming
+recovery
+evaluation
+
+============================================================
+6. EVALUATION ENGINE
+============================================================
+
+Implement a generic evaluation framework.
+
+Measure factual metrics such as:
+
+- task completion
+- completion time
+- number of valid actions
+- tool failures
+- command failures
+- detection latency
+- response latency
+- experiment duration
+- recovery success
+- unnecessary actions
+- VM availability
+
+Do not create subjective agent rankings or arbitrary "best agent" scores.
+
+Results must be based on recorded experiment data.
+
+============================================================
+7. REPRODUCIBILITY
+============================================================
+
+Every experiment must record:
+
+experiment_id
+scenario_id
+timestamp
+agent configuration
+VM assignments
+model assignments
+role prompts
+limits
+baseline snapshot
+event log
+evaluation metrics
+recovery information
+
+Store enough data to reproduce the same experiment setup.
+
+============================================================
+8. AUDIT LOG
+============================================================
+
+Create structured audit records for:
+
+experiment creation
+experiment start
+experiment stop
+VM assignment
+VM start/stop
+snapshot
+restore
+agent state
+tool call
+command execution
+result
+failure
+recovery
+evaluation
+
+Avoid accidental deletion/overwrite during normal operation.
+
+============================================================
+9. FINAL UI
+============================================================
+
+Upgrade the browser into the complete CyberArena interface.
+
+Provide:
+
+Dashboard
+VM management
+Model management
+Experiment builder
+Scenario selection
+Live experiment
+Agent cards
+VM terminal panels
+Event timeline
+Evaluation results
+Experiment history
+Recovery controls
+
+Maintain:
+
+modern
+dark
+simple
+clear
+professional
+responsive
+
+Do not turn the interface into a confusing sci-fi cockpit where every rectangle flashes because someone discovered CSS.
+
+============================================================
+10. LIVE EXPERIMENT VIEW
+============================================================
+
+During execution show:
+
+experiment status
+elapsed time
+agent status
+VM state
+model
+role summary
+current action
+latest observation
+tool result
+event timeline
+errors
+stop/kill control
+recovery state
+
+Never display hidden chain-of-thought.
+
+Display concise action summaries and observable tool results only.
+
+============================================================
+11. MODEL SYSTEM
+============================================================
+
+Keep model discovery and configuration dynamic.
+
+Example:
+
+Agent 1 → qwen3:4b
+Agent 2 → qwen3:4b
+
+Additional installed Ollama models may be selected later.
+
+Do not hardcode model names.
+
+Do not duplicate model instances unnecessarily.
+
+Preserve resource configuration.
+
+============================================================
+12. CONCURRENT AGENTS
+============================================================
+
+Retain Phase 3 concurrency.
+
+Each agent remains independent in:
+
+state
+memory
+VM
+role
+objective
+model
+tool history
+event stream
+status
+
+The orchestrator coordinates the agents but does not turn them into one monolithic agent.
+
+============================================================
+13. ERROR HANDLING
+============================================================
+
+Handle:
+
+VM unavailable
+SSH failure
+authentication failure
+model unavailable
+invalid tool
+malformed action
+tool timeout
+command timeout
+agent timeout
+experiment timeout
+snapshot failure
+restore failure
+WebSocket disconnect
+database failure
+scenario configuration failure
+invalid experiment configuration
+
+Errors must be:
+
+- captured
+- logged
+- visible in UI
+- represented in experiment state
+
+============================================================
+14. SECURITY REVIEW
+============================================================
+
+Perform a complete repository-wide security review.
+
+Search for:
+
+subprocess
+shell=True
+os.system
+os.popen
+PowerShell
+cmd.exe
+SSH connections
+network target handling
+file operations
+temporary files
+credentials
+private keys
+passwords
+
+Verify:
+
+- no unrestricted host command execution
+- no host fallback
+- no arbitrary execution target
+- no arbitrary network target
+- no hardcoded VM names
+- no hardcoded model names
+- no hardcoded agent count
+- no hardcoded max_vm
+- no credentials committed
+- VM target always comes from configuration
+- agent tool execution always goes through VMProvider
+
+Fix all violations.
+
+============================================================
+15. DOCUMENTATION
+============================================================
+
+Create/update:
+
+README.md
+docs/architecture.md
+docs/setup.md
+docs/security.md
+docs/scenarios.md
+docs/evaluation.md
+docs/troubleshooting.md
+docs/phase4.md
+
+Documentation must explain from a clean Windows machine:
+
+1. prerequisites
+2. VirtualBox
+3. Ubuntu VM creation
+4. SSH
+5. host-only networking
+6. Ollama
+7. model installation
+8. backend setup
+9. frontend setup
+10. experiment creation
+11. scenario execution
+12. evaluation
+13. snapshot restoration
+14. troubleshooting
+
+============================================================
+16. FINAL END-TO-END ACCEPTANCE TEST
+============================================================
+
+Actually execute the following when the local environment permits:
+
+1. Verify VirtualBox.
+2. Verify two configured VMs.
+3. Verify private network.
+4. Verify SSH.
+5. Verify VM health.
+6. Verify backend.
+7. Verify Ollama.
+8. Verify model availability.
+9. Open browser.
+10. Create experiment.
+11. Configure two agents.
+12. Select two VMs.
+13. Select local models.
+14. Enter independent role instructions.
+15. Configure limits.
+16. Create baseline snapshots.
+17. Start experiment.
+18. Verify concurrent agent execution.
+19. Verify each agent interacts only with its assigned VM.
+20. Verify live WebSocket events.
+21. Verify terminal output.
+22. Run controlled local scenario.
+23. Produce evaluation metrics.
+24. Produce audit records.
+25. Stop experiment.
+26. Restore baseline snapshots.
+27. Verify VM recovery.
+28. Run complete backend test suite.
+29. Build frontend.
+30. Run repository-wide security review.
+
+============================================================
+17. FINAL CROSS-CHECK
+============================================================
+
+Perform a formal checklist against EVERY major project requirement.
+
+Verify:
+
+[ ] Project architecture complete
+[ ] Four-phase architecture respected
+[ ] Modular interfaces exist
+[ ] Configuration-driven architecture exists
+[ ] max_vm is configurable
+[ ] VM registry is configurable
+[ ] VM IDs are independent
+[ ] VirtualBoxProvider works
+[ ] SSH execution works
+[ ] Host execution is impossible through agent tools
+[ ] LLMProvider exists
+[ ] OllamaProvider works
+[ ] Models are dynamically discovered
+[ ] Generic Agent exists
+[ ] User-defined role exists
+[ ] Agent loop works
+[ ] ToolRegistry exists
+[ ] Tools use assigned VM only
+[ ] Agent memory/state exists
+[ ] Experiment builder works
+[ ] Multiple agents supported
+[ ] Concurrent execution works
+[ ] WebSocket live events work
+[ ] SQLite persistence works
+[ ] Scenario engine works
+[ ] Controlled local scenario works
+[ ] Snapshot/recovery works
+[ ] Kill switch works
+[ ] Timeouts work
+[ ] Evaluation engine works
+[ ] Audit logs work
+[ ] Reproducibility data is stored
+[ ] Final UI is functional
+[ ] Final UI is modern/simple/understandable
+[ ] No secrets committed
+[ ] No arbitrary network targeting
+[ ] No host command execution
+[ ] No hardcoded VM names
+[ ] No hardcoded model names
+[ ] No hardcoded attacker/defender intelligence
+[ ] Unit tests pass
+[ ] Integration tests pass where environment permits
+[ ] Frontend build passes
+[ ] Documentation complete
+
+============================================================
+18. DO NOT FAKE VALIDATION
+============================================================
+
+This is extremely important.
+
+Do NOT say a feature was verified merely because:
+
+- the function exists
+- the endpoint returns 200
+- the frontend renders
+- a mock test passed
+- an integration test was skipped
+- the code "should work"
+
+Clearly distinguish:
+
+PASS
+SKIPPED
+FAILED
+NOT TESTED
+
+Real infrastructure must be tested whenever the environment permits.
+
+============================================================
+19. FINAL COMPLETION REPORT
+============================================================
+
+At the end provide:
+
+FINAL CYBERARENA IMPLEMENTATION REPORT
+
+Include:
+
+1. Final architecture
+2. Final folder structure
+3. Files created
+4. Files changed
+5. Dependencies
+6. VM configuration
+7. LLM configuration
+8. Agent architecture
+9. Tool architecture
+10. Experiment architecture
+11. Scenario architecture
+12. Evaluation architecture
+13. UI implementation
+14. Security/isolation audit
+15. Unit test results
+16. Integration test results
+17. Real Ollama result
+18. Real two-agent result
+19. Real VM isolation result
+20. Snapshot/restore result
+21. Scenario result
+22. Evaluation result
+23. Known limitations
+24. Exact commands to launch CyberArena
+25. Exact browser URL
+26. Any remaining manual setup
+
+Finally provide:
+
+FINAL PROJECT STATUS:
+PASS / PARTIAL / FAIL
+
+Only report PASS if the mandatory requirements are actually implemented and verified.
+
+If some parts could not be physically tested because of the local environment, clearly identify them.
+
+Do not hide skipped tests.
+
+Do not invent results.
+
+At the end state whether the complete CyberArena implementation is ready to use.
+
+DO NOT redesign the architecture after completion unless a concrete defect requires it.
+============================================================
